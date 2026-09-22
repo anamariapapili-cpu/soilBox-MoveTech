@@ -1,246 +1,168 @@
-# 🌱 SoilBox | MoveTech
+# 🌱 SoilBox
 
-<p align="center">
-  <b>Tecnologia aplicada à análise do solo e à recuperação ambiental.</b>
-</p>
+### Análise de solo de forma portátil, simples e prática.
 
----
+O **SoilBox** é um projeto desenvolvido pela equipe **MoveTech** para ajudar na análise das condições do solo.
 
-## 📌 Sobre o projeto
+A ideia surgiu a partir de uma pergunta simples:
 
-O **SoilBox** é uma solução portátil desenvolvida pela equipe **MoveTech** para auxiliar na análise das condições do solo.
+> **Como podemos entender melhor o solo antes de pensar em recuperar uma área degradada?**
 
-O projeto foi criado a partir da ideia de que, antes de iniciar uma ação de recuperação ambiental, é importante compreender as características do solo e identificar possíveis condições que possam dificultar o desenvolvimento das plantas.
-
-Por meio de sensores conectados a uma **ESP32**, o SoilBox realiza leituras do solo e apresenta os dados ao usuário de forma simples e organizada.
+Foi daí que começamos a desenvolver uma maleta portátil capaz de reunir sensores, programação e impressão 3D em uma única solução.
 
 ---
 
-## 🌎 Problema
+## 💡 O projeto
 
-Áreas degradadas podem apresentar alterações importantes no solo, como:
+O SoilBox realiza leituras diretamente no solo e apresenta os resultados no próprio equipamento.
 
-* baixa umidade;
-* pH inadequado;
-* deficiência ou desequilíbrio de nutrientes;
-* alterações na condutividade elétrica;
-* condições desfavoráveis ao crescimento das plantas.
+O usuário posiciona a maleta no local que deseja analisar, insere os sensores no solo e inicia a leitura.
 
-Sem conhecer essas informações, ações de recuperação podem ser realizadas sem considerar as reais necessidades do local.
+A **ESP32** recebe os dados dos sensores, processa as informações e mostra os resultados no display.
 
 ---
 
-## 💡 Nossa solução
+## 🔎 O que analisamos
 
-O **SoilBox** reúne os sensores e componentes eletrônicos em uma maleta portátil.
+O sistema foi desenvolvido para trabalhar com dados como:
 
-Para realizar uma análise, o usuário posiciona o equipamento sobre o local desejado e insere os sensores no solo.
+* pH
+* umidade
+* temperatura
+* condutividade elétrica
+* nitrogênio
+* fósforo
+* potássio
 
-O sistema realiza as leituras, processa as informações através da **ESP32** e apresenta os resultados no display.
-
-Dessa forma, diferentes pontos de uma área podem ser analisados de maneira prática e organizada.
-
----
-
-## 🔬 Parâmetros analisados
-
-O projeto foi desenvolvido para trabalhar com parâmetros importantes relacionados às condições do solo, como:
-
-* 💧 Umidade
-* 🌡️ Temperatura
-* 🧪 pH
-* ⚡ Condutividade elétrica
-* 🌿 Nitrogênio
-* 🌱 Fósforo
-* 🍃 Potássio
+Essas informações ajudam a entender melhor as condições encontradas em cada ponto analisado.
 
 ---
 
 ## ⚙️ Como funciona
 
 ```text
-SOLO
+Solo
   ↓
-SENSORES
+Sensores
   ↓
 ESP32
   ↓
-PROCESSAMENTO DOS DADOS
+Processamento
   ↓
-DISPLAY
-  ↓
-RESULTADO DA ANÁLISE
+Resultado no display
 ```
 
-A ESP32 recebe as informações enviadas pelos sensores, processa os dados e apresenta os resultados ao usuário.
-
-O sistema também pode organizar as análises de diferentes pontos do terreno, permitindo acompanhar as condições encontradas em cada local.
+A proposta é que o SoilBox possa ser levado até diferentes pontos de uma área, permitindo fazer análises diretamente no local.
 
 ---
 
-## 🧠 Etapas do sistema
+## 🧰 O que usamos
 
-1. O SoilBox é ligado.
-2. O sistema inicia a preparação para a análise.
-3. Os sensores são posicionados no solo.
-4. A ESP32 recebe os dados.
-5. As informações são processadas.
-6. Os resultados são apresentados no display.
-7. O usuário pode utilizar os dados para compreender melhor as condições da área analisada.
-
----
-
-## 🛠️ Tecnologias utilizadas
-
-### Hardware
+**Eletrônica**
 
 * ESP32
-* Sensores para análise do solo
-* Display
-* Componentes eletrônicos
-* Estrutura produzida com impressão 3D
+* sensores de solo
+* display
+* componentes eletrônicos
 
-### Software
+**Programação**
 
-* C / C++
+* C++
 * PlatformIO
 * Arduino Framework
-* Visual Studio Code
 
-### Prototipagem
+**Construção**
 
-* Modelagem 3D
-* Impressão 3D
-* Testes de campo
-* Prototipagem iterativa
+* modelagem 3D
+* impressão 3D
+* prototipagem
+* testes
 
 ---
 
-## 📂 Estrutura do repositório
+## 📂 Neste repositório
+
+Aqui estamos compartilhando parte do desenvolvimento do SoilBox.
+
+Você encontrará:
 
 ```text
 SoilBox/
 │
-├── src/
-│   └── programação do sistema
+├── code/
+│   └── programação
 │
 ├── 3D/
-│   └── arquivos para impressão 3D
+│   └── arquivos para impressão
 │
 ├── images/
-│   └── imagens do projeto
-│
-├── docs/
-│   └── documentação
+│   └── fotos do projeto
 │
 └── README.md
 ```
 
----
+### 🖨️ Arquivos 3D
 
-## 🧩 Arquivos 3D
+Disponibilizamos os modelos utilizados na construção do projeto para que outras pessoas possam estudar, imprimir, adaptar e criar novas versões.
 
-Neste repositório também disponibilizamos os arquivos desenvolvidos para impressão 3D dos componentes utilizados no SoilBox.
+### 💻 Código
 
-Esses arquivos podem ser utilizados para:
+Também compartilhamos a programação utilizada no SoilBox.
 
-* estudar o projeto;
-* reproduzir peças;
-* realizar adaptações;
-* desenvolver novas versões;
-* criar melhorias a partir da nossa proposta.
+Assim, outras equipes e estudantes podem entender como o sistema funciona e usar nosso projeto como ponto de partida para novos testes e melhorias.
 
 ---
 
-## 💻 Programação
+## 🔄 Nosso processo
 
-O código utilizado no projeto também está disponível neste repositório.
+O projeto passou por várias mudanças até chegar à versão atual.
 
-A programação foi desenvolvida para controlar o processo de análise, receber informações dos sensores e apresentar os resultados ao usuário.
+Não queríamos apenas colocar sensores dentro de uma caixa.
 
-Nosso objetivo ao disponibilizar o código é incentivar a aprendizagem, a colaboração e o desenvolvimento de novas soluções.
+Testamos o posicionamento dos componentes, a organização interna, a estrutura da maleta e a programação até encontrar uma solução que fosse mais prática para o uso em campo.
 
----
-
-## 🔄 Desenvolvimento
-
-O SoilBox não surgiu pronto.
-
-Durante o desenvolvimento, nossa equipe passou por diferentes etapas:
-
-**Pesquisar → Projetar → Criar → Testar → Avaliar → Melhorar**
-
-Foram realizadas mudanças na estrutura, organização dos componentes, programação e posicionamento dos sensores até chegarmos à versão atual.
-
----
-
-## 🌱 Impacto
-
-O SoilBox busca mostrar como a tecnologia pode contribuir para a compreensão de problemas ambientais.
-
-Mais do que realizar medições, o projeto procura transformar dados em informações que possam auxiliar na análise das condições de uma área.
-
-Nossa proposta une:
-
-**Tecnologia + Engenharia + Ciência + Sustentabilidade**
-
----
-
-## 📖 Código aberto e colaboração
-
-Disponibilizamos parte do desenvolvimento do SoilBox para que estudantes, equipes de robótica, professores e pesquisadores possam conhecer nossa solução.
-
-Você pode utilizar este material para estudo, desenvolvimento e criação de novas versões, respeitando a licença adotada neste repositório.
-
-Melhorias e contribuições são bem-vindas. 🚀
-
----
-
-## 👥 Equipe
-
-### MoveTech
-
-Projeto desenvolvido por estudantes da equipe **MoveTech**, unindo pesquisa, programação, engenharia, prototipagem e preocupação com o meio ambiente.
-
----
-
-## 📸 Galeria
-
-Adicione aqui fotos do projeto:
-
-```markdown
-![SoilBox](images/soilbox.jpg)
+```text
+Pesquisa → Ideia → Protótipo → Testes → Melhorias
 ```
 
-Também podem ser adicionadas imagens da:
-
-* maleta;
-* parte interna;
-* sensores;
-* impressão 3D;
-* programação;
-* testes em solo;
-* equipe trabalhando no projeto.
+E o projeto continua evoluindo.
 
 ---
 
-## 🚀 Próximos passos
+## 🌎 Por que o SoilBox?
 
-Entre as possibilidades de evolução do projeto estão:
+Porque antes de pensar em recuperar uma área, precisamos entender o que está acontecendo nela.
 
-* ampliar os testes em diferentes tipos de solo;
-* melhorar a interpretação dos dados;
-* aprimorar a organização das análises;
-* desenvolver novas peças 3D;
-* melhorar a interface com o usuário;
-* testar novas formas de apresentar os resultados.
+O SoilBox foi criado justamente para aproximar **tecnologia e meio ambiente**, utilizando dados para conhecer melhor as condições do solo.
 
 ---
 
-## 💚 MoveTech
+## 📸 Projeto
 
-> **Tecnologia aplicada para conhecer, cuidar e transformar.**
+### Vista externa
 
-🌱 SoilBox
-🤖 MoveTech
-🌎 Tecnologia, inovação e sustentabilidade
+`Adicionar foto aqui`
+
+### Parte interna
+
+`Adicionar foto aqui`
+
+### Sensores
+
+`Adicionar foto aqui`
+
+### Testes
+
+`Adicionar foto aqui`
+
+---
+
+## 👥 MoveTech
+
+Somos a **MoveTech**.
+
+Gostamos de pesquisar, construir, testar, errar, melhorar e transformar ideias em projetos reais.
+
+O SoilBox representa um pouco desse processo.
+
+**Tecnologia para entender o ambiente e criar novas possibilidades. 🌱**
