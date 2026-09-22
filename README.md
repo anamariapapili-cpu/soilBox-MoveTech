@@ -1,4 +1,4 @@
-# 🌱 SoilBox
+#  SoilBox
 
 ### Análise de solo de forma portátil, simples e prática.
 
@@ -12,7 +12,7 @@ Foi daí que começamos a desenvolver uma maleta portátil capaz de reunir senso
 
 ---
 
-## 💡 O projeto
+##  O projeto
 
 O SoilBox realiza leituras diretamente no solo e apresenta os resultados no próprio equipamento.
 
@@ -22,7 +22,7 @@ A **ESP32** recebe os dados dos sensores, processa as informações e mostra os 
 
 ---
 
-## 🔎 O que analisamos
+##  O que analisamos
 
 O sistema foi desenvolvido para trabalhar com dados como:
 
@@ -38,7 +38,7 @@ Essas informações ajudam a entender melhor as condições encontradas em cada 
 
 ---
 
-## ⚙️ Como funciona
+##  Como funciona
 
 ```text
 Solo
@@ -56,7 +56,7 @@ A proposta é que o SoilBox possa ser levado até diferentes pontos de uma área
 
 ---
 
-## 🧰 O que usamos
+##  O que usamos
 
 **Eletrônica**
 
@@ -80,7 +80,7 @@ A proposta é que o SoilBox possa ser levado até diferentes pontos de uma área
 
 ---
 
-## 📂 Neste repositório
+##  Neste repositório
 
 Aqui estamos compartilhando parte do desenvolvimento do SoilBox.
 
@@ -101,11 +101,11 @@ SoilBox/
 └── README.md
 ```
 
-### 🖨️ Arquivos 3D
+###  Arquivos 3D
 
 Disponibilizamos os modelos utilizados na construção do projeto para que outras pessoas possam estudar, imprimir, adaptar e criar novas versões.
 
-### 💻 Código
+###  Código
 
 Também compartilhamos a programação utilizada no SoilBox.
 
@@ -113,7 +113,7 @@ Assim, outras equipes e estudantes podem entender como o sistema funciona e usar
 
 ---
 
-## 🔄 Nosso processo
+##  Nosso processo
 
 O projeto passou por várias mudanças até chegar à versão atual.
 
@@ -129,7 +129,7 @@ E o projeto continua evoluindo.
 
 ---
 
-## 🌎 Por que o SoilBox?
+##  Por que o SoilBox?
 
 Porque antes de pensar em recuperar uma área, precisamos entender o que está acontecendo nela.
 
@@ -137,7 +137,7 @@ O SoilBox foi criado justamente para aproximar **tecnologia e meio ambiente**, u
 
 ---
 
-## 📸 Projeto
+##  Projeto
 
 ### Vista externa
 
@@ -157,7 +157,7 @@ O SoilBox foi criado justamente para aproximar **tecnologia e meio ambiente**, u
 
 ---
 
-## 👥 MoveTech
+##  MoveTech
 
 Somos a **MoveTech**.
 
