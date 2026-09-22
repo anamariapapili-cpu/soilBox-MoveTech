@@ -137,25 +137,6 @@ O SoilBox foi criado justamente para aproximar **tecnologia e meio ambiente**, u
 
 ---
 
-##  Projeto
-
-### Vista externa
-
-`Adicionar foto aqui`
-
-### Parte interna
-
-`Adicionar foto aqui`
-
-### Sensores
-
-`Adicionar foto aqui`
-
-### Testes
-
-`Adicionar foto aqui`
-
----
 
 ##  MoveTech
 
