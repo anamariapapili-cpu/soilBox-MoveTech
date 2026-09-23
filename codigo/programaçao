@@ -1,1 +1,1072 @@
 
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WebServer.h>
+#include <LittleFS.h>
+#include <Wire.h>
+#include <LiquidCrystal_PCF8574.h>
+#include <vector>
+
+// ============================================================
+// SOILBOX - MOVETECH
+// ESP32 + LCD I2C + Wi-Fi próprio + LittleFS + Web Dashboard
+// Modo atual: SIMULAÇÃO de sensores para demonstração.
+// ============================================================
+
+// -------------------- CONFIGURAÇÕES ---------------------------
+const char* WIFI_SSID = "SoilBox-Movetech";
+const char* WIFI_PASSWORD = "Movetech2026"; // mínimo 8 caracteres
+
+const uint8_t LCD_ADDRESS = 0x27;
+const uint8_t LCD_COLS = 16;
+const uint8_t LCD_ROWS = 2;
+
+const uint8_t SDA_PIN = 21;
+const uint8_t SCL_PIN = 22;
+
+// Botão físico opcional: liga GPIO 4 ao GND.
+// Se não usar botão, pode deixar sem conectar.
+const uint8_t BUTTON_PIN = 4;
+
+const char* HISTORY_FILE = "/analises.csv";
+const uint16_t MAX_RECORDS = 200;
+
+// Intervalo do modo automático.
+// Evita gravações excessivas na Flash.
+const unsigned long AUTO_INTERVAL_MS = 30000;
+
+// -------------------- OBJETOS --------------------------------
+WebServer server(80);
+LiquidCrystal_PCF8574 lcd(LCD_ADDRESS);
+
+// -------------------- ESTRUTURA DA ANÁLISE -------------------
+struct SoilAnalysis {
+  uint32_t id;
+  uint64_t epoch;
+  String point;
+  float ph;
+  float ec;
+  float temperature;
+  float phosphorus;
+  float potassium;
+  float moisture;
+  float nitrogen;
+  String status;
+};
+
+// -------------------- VARIÁVEIS GLOBAIS -----------------------
+SoilAnalysis currentAnalysis;
+bool hasAnalysis = false;
+
+uint32_t lastId = 0;
+bool autoMode = false;
+bool cycleCompleted = false;
+
+unsigned long lastAutoAnalysis = 0;
+unsigned long lastLcdPageChange = 0;
+uint8_t lcdPage = 0;
+
+bool lastButtonState = HIGH;
+unsigned long lastButtonDebounce = 0;
+
+// O ESP32 sem RTC/internet não conhece sozinho a data/hora real.
+// Quando o site abre, o navegador envia o horário do celular/PC.
+uint64_t syncedEpoch = 0;
+unsigned long syncedAtMillis = 0;
+
+// -------------------- HTML DO SITE ----------------------------
+const char INDEX_HTML[] PROGMEM = R"SOILBOXHTML(
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SoilBox | Movetech</title>
+<style>
+:root{
+  --green:#1f7a4c;
+  --green2:#35a66f;
+  --dark:#17352a;
+  --bg:#f4f7f5;
+  --card:#ffffff;
+  --text:#1b2a24;
+  --muted:#66766f;
+  --line:#dce6e1;
+  --good:#1d8f54;
+  --warn:#d28a00;
+  --bad:#c94848;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family:Arial,Helvetica,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+}
+header{
+  background:linear-gradient(135deg,var(--dark),var(--green));
+  color:white;
+  padding:28px 18px;
+}
+.header-wrap{
+  max-width:1180px;
+  margin:auto;
+  display:flex;
+  justify-content:space-between;
+  gap:20px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+.brand h1{margin:0;font-size:34px;letter-spacing:.4px}
+.brand p{margin:6px 0 0;opacity:.9}
+.badge{
+  padding:10px 14px;
+  border:1px solid rgba(255,255,255,.35);
+  border-radius:999px;
+  background:rgba(255,255,255,.1);
+  font-weight:bold;
+}
+main{max-width:1180px;margin:20px auto;padding:0 16px 36px}
+.toolbar,.card{
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:16px;
+  box-shadow:0 6px 20px rgba(30,70,50,.06);
+}
+.toolbar{
+  padding:15px;
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:10px;
+  margin-bottom:16px;
+}
+input,select,button{
+  border-radius:10px;
+  border:1px solid #cbd8d1;
+  padding:11px 12px;
+  font-size:14px;
+}
+input{min-width:190px}
+button{
+  cursor:pointer;
+  border:none;
+  font-weight:bold;
+  background:var(--green);
+  color:white;
+}
+button.secondary{background:#45645a}
+button.warning{background:#a56e09}
+button.danger{background:#a63f3f}
+button:hover{filter:brightness(.96)}
+.grid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;
+}
+.metric{
+  padding:16px;
+  min-height:112px;
+}
+.metric .name{font-size:13px;color:var(--muted);font-weight:bold}
+.metric .value{font-size:28px;font-weight:800;margin-top:8px}
+.metric .unit{font-size:13px;color:var(--muted);margin-left:3px}
+.status-card{
+  grid-column:span 2;
+  padding:16px;
+}
+.status-pill{
+  display:inline-block;
+  padding:8px 11px;
+  border-radius:999px;
+  color:white;
+  font-weight:bold;
+  margin-bottom:8px;
+}
+.good{background:var(--good)}
+.warn{background:var(--warn)}
+.bad{background:var(--bad)}
+.section{
+  margin-top:16px;
+  padding:18px;
+}
+.section h2{margin:0 0 14px;font-size:19px}
+.chart-wrap{height:320px;position:relative}
+canvas{width:100%;height:100%;display:block}
+.small{font-size:12px;color:var(--muted)}
+.info-row{
+  display:flex;
+  gap:14px;
+  flex-wrap:wrap;
+  font-size:13px;
+  color:var(--muted);
+  margin-top:8px;
+}
+table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:13px;
+}
+th,td{
+  padding:10px 8px;
+  border-bottom:1px solid var(--line);
+  text-align:center;
+  white-space:nowrap;
+}
+th{
+  background:#eef5f1;
+  position:sticky;
+  top:0;
+}
+.table-wrap{overflow:auto;max-height:380px;border-radius:10px}
+.empty{padding:26px;text-align:center;color:var(--muted)}
+footer{
+  text-align:center;
+  color:var(--muted);
+  padding:18px;
+  font-size:12px;
+}
+@media(max-width:900px){
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:560px){
+  .grid{grid-template-columns:1fr}
+  .status-card{grid-column:span 1}
+  .brand h1{font-size:28px}
+  .toolbar>*{width:100%}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="header-wrap">
+    <div class="brand">
+      <h1>SoilBox</h1>
+      <p>Estação portátil de análise de solo • Equipe Movetech</p>
+    </div>
+    <div class="badge">ESP32 • Wi-Fi local • Flash</div>
+  </div>
+</header>
+
+<main>
+  <div class="toolbar">
+    <div style="flex:1;min-width:240px">
+      <b>Ciclo automático do SoilBox</b><br>
+      <span class="small">Ao ligar: 5 s de preparação + 10 s de análise. Para uma nova análise, desligue e ligue o equipamento.</span>
+    </div>
+    <button class="warning" onclick="downloadCsv()">Exportar CSV</button>
+    <button class="danger" onclick="clearHistory()">Limpar histórico</button>
+  </div>
+
+  <div class="grid">
+    <div class="card metric"><div class="name">pH</div><div class="value" id="ph">--</div></div>
+    <div class="card metric"><div class="name">Condutividade</div><div class="value"><span id="ec">--</span><span class="unit">mS/cm</span></div></div>
+    <div class="card metric"><div class="name">Temperatura</div><div class="value"><span id="temp">--</span><span class="unit">°C</span></div></div>
+    <div class="card metric"><div class="name">Umidade</div><div class="value"><span id="moist">--</span><span class="unit">%</span></div></div>
+
+    <div class="card metric"><div class="name">Nitrogênio</div><div class="value"><span id="n">--</span><span class="unit">mg/kg</span></div></div>
+    <div class="card metric"><div class="name">Fósforo</div><div class="value"><span id="p">--</span><span class="unit">mg/kg</span></div></div>
+    <div class="card metric"><div class="name">Potássio</div><div class="value"><span id="k">--</span><span class="unit">mg/kg</span></div></div>
+
+    <div class="card status-card">
+      <div class="name">Diagnóstico demonstrativo</div>
+      <div id="statusPill" class="status-pill warn">Sem análise</div>
+      <div id="recommendation">Realize uma análise para gerar sugestões.</div>
+      <div class="small" style="margin-top:8px">
+        Faixas apenas para simulação educacional. Em uso real, os limites devem ser definidos conforme solo, espécie e orientação técnica.
+      </div>
+    </div>
+  </div>
+
+  <div class="card section">
+    <h2>Evolução das análises</h2>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <label for="metricSelect" class="small">Parâmetro do gráfico:</label>
+      <select id="metricSelect" onchange="drawChart()">
+        <option value="ph">pH</option>
+        <option value="ec">Condutividade (mS/cm)</option>
+        <option value="temperature">Temperatura (°C)</option>
+        <option value="moisture">Umidade (%)</option>
+        <option value="nitrogen">Nitrogênio (mg/kg)</option>
+        <option value="phosphorus">Fósforo (mg/kg)</option>
+        <option value="potassium">Potássio (mg/kg)</option>
+      </select>
+    </div>
+    <div class="chart-wrap"><canvas id="chart"></canvas></div>
+  </div>
+
+  <div class="card section">
+    <h2>Histórico salvo na memória Flash</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th><th>Data/Hora</th><th>Ponto</th><th>pH</th><th>EC</th>
+            <th>Temp.</th><th>Umid.</th><th>N</th><th>P</th><th>K</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+    </div>
+    <div class="info-row">
+      <span id="ipInfo">IP: --</span>
+      <span id="clientsInfo">Dispositivos conectados: --</span>
+      <span id="flashInfo">Flash: --</span>
+      <span id="heapInfo">RAM livre: --</span>
+    </div>
+  </div>
+</main>
+
+<footer>
+  SoilBox • Projeto da equipe Movetech • Simulação de sensores em ESP32
+</footer>
+
+<script>
+let analyses = [];
+let meta = {};
+let isBusy = false;
+
+const metricInfo = {
+  ph:{label:"pH",unit:""},
+  ec:{label:"Condutividade",unit:"mS/cm"},
+  temperature:{label:"Temperatura",unit:"°C"},
+  moisture:{label:"Umidade",unit:"%"},
+  nitrogen:{label:"Nitrogênio",unit:"mg/kg"},
+  phosphorus:{label:"Fósforo",unit:"mg/kg"},
+  potassium:{label:"Potássio",unit:"mg/kg"}
+};
+
+async function syncClock(){
+  try{
+    const epoch = Math.floor(Date.now()/1000);
+    await fetch("/sync-time?epoch="+epoch,{cache:"no-store"});
+  }catch(e){}
+}
+
+async function loadAll(){
+  try{
+    const [dataResp,metaResp] = await Promise.all([
+      fetch("/api/data",{cache:"no-store"}),
+      fetch("/api/meta",{cache:"no-store"})
+    ]);
+    analyses = await dataResp.json();
+    meta = await metaResp.json();
+    updateUi();
+  }catch(e){
+    console.log(e);
+  }
+}
+
+function fmt(v,d=1){
+  return (v===undefined || v===null) ? "--" : Number(v).toFixed(d);
+}
+
+function formatTime(epoch){
+  if(!epoch) return "sem data";
+  return new Date(epoch*1000).toLocaleString("pt-BR");
+}
+
+function updateUi(){
+  const a = analyses.length ? analyses[analyses.length-1] : null;
+
+  if(a){
+    document.getElementById("ph").textContent = fmt(a.ph,2);
+    document.getElementById("ec").textContent = fmt(a.ec,2);
+    document.getElementById("temp").textContent = fmt(a.temperature,1);
+    document.getElementById("moist").textContent = fmt(a.moisture,1);
+    document.getElementById("n").textContent = fmt(a.nitrogen,0);
+    document.getElementById("p").textContent = fmt(a.phosphorus,0);
+    document.getElementById("k").textContent = fmt(a.potassium,0);
+
+    const pill = document.getElementById("statusPill");
+    pill.textContent = a.status;
+    pill.className = "status-pill " + statusClass(a.status);
+    document.getElementById("recommendation").textContent = recommendation(a);
+  }
+
+  const body = document.getElementById("historyBody");
+  if(!analyses.length){
+    body.innerHTML = '<tr><td colspan="11" class="empty">Nenhuma análise salva.</td></tr>';
+  }else{
+    body.innerHTML = analyses.slice().reverse().map(a=>`
+      <tr>
+        <td>${a.id}</td>
+        <td>${formatTime(a.epoch)}</td>
+        <td>${escapeHtml(a.point)}</td>
+        <td>${fmt(a.ph,2)}</td>
+        <td>${fmt(a.ec,2)}</td>
+        <td>${fmt(a.temperature,1)}</td>
+        <td>${fmt(a.moisture,1)}</td>
+        <td>${fmt(a.nitrogen,0)}</td>
+        <td>${fmt(a.phosphorus,0)}</td>
+        <td>${fmt(a.potassium,0)}</td>
+        <td><b>${a.status}</b></td>
+      </tr>
+    `).join("");
+  }
+
+  document.getElementById("ipInfo").textContent = "IP: " + (meta.ip || "--");
+  document.getElementById("clientsInfo").textContent = "Dispositivos conectados: " + (meta.clients ?? "--");
+  document.getElementById("flashInfo").textContent =
+    `Flash: ${formatBytes(meta.fsUsed||0)} / ${formatBytes(meta.fsTotal||0)}`;
+  document.getElementById("heapInfo").textContent =
+    "RAM livre: " + formatBytes(meta.freeHeap||0);
+
+  const autoBtn = document.getElementById("autoBtn");
+  autoBtn.textContent = "Modo automático: " + (meta.auto ? "ON" : "OFF");
+
+  drawChart();
+}
+
+function statusClass(s){
+  if(s==="Favorável") return "good";
+  if(s==="Desfavorável") return "bad";
+  return "warn";
+}
+
+function recommendation(a){
+  const tips=[];
+  if(a.ph < 5.5) tips.push("verificar acidez do solo");
+  if(a.ph > 7.2) tips.push("verificar alcalinidade");
+  if(a.moisture < 30) tips.push("avaliar irrigação e cobertura do solo");
+  if(a.moisture > 65) tips.push("avaliar drenagem");
+  if(a.ec > 1.8) tips.push("investigar possível excesso de sais");
+  if(a.nitrogen < 25) tips.push("avaliar reposição de matéria orgânica/nitrogênio");
+  if(a.phosphorus < 12) tips.push("avaliar disponibilidade de fósforo");
+  if(a.potassium < 45) tips.push("avaliar disponibilidade de potássio");
+
+  if(!tips.length) return "Os parâmetros simulados estão dentro das faixas demonstrativas configuradas.";
+  return "Sugestões: " + tips.join("; ") + ".";
+}
+
+function escapeHtml(s){
+  return String(s||"").replace(/[&<>"']/g,c=>({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[c]));
+}
+
+function formatBytes(n){
+  n=Number(n)||0;
+  if(n<1024) return n+" B";
+  if(n<1024*1024) return (n/1024).toFixed(1)+" KB";
+  return (n/1024/1024).toFixed(2)+" MB";
+}
+
+async function newAnalysis(){
+  if(isBusy) return;
+  isBusy=true;
+  const p = encodeURIComponent(document.getElementById("point").value.trim());
+  try{
+    const r = await fetch("/analisar?ponto="+p,{cache:"no-store"});
+    if(!r.ok) throw new Error("Falha");
+    await loadAll();
+  }catch(e){
+    alert("Não foi possível realizar a análise.");
+  }
+  isBusy=false;
+}
+
+async function toggleAuto(){
+  const next = meta.auto ? 0 : 1;
+  await fetch("/auto?on="+next,{cache:"no-store"});
+  await loadAll();
+}
+
+function downloadCsv(){
+  location.href="/download";
+}
+
+async function clearHistory(){
+  if(!confirm("Apagar todo o histórico salvo na Flash?")) return;
+  await fetch("/limpar",{cache:"no-store"});
+  await loadAll();
+}
+
+function drawChart(){
+  const canvas=document.getElementById("chart");
+  const rect=canvas.getBoundingClientRect();
+  const dpr=window.devicePixelRatio||1;
+  canvas.width=Math.max(300,Math.floor(rect.width*dpr));
+  canvas.height=Math.max(220,Math.floor(rect.height*dpr));
+  const ctx=canvas.getContext("2d");
+  ctx.scale(dpr,dpr);
+
+  const W=rect.width,H=rect.height;
+  ctx.clearRect(0,0,W,H);
+
+  const key=document.getElementById("metricSelect").value;
+  const info=metricInfo[key];
+
+  ctx.fillStyle="#66766f";
+  ctx.font="12px Arial";
+  ctx.fillText(info.label + (info.unit ? " ("+info.unit+")" : ""),16,18);
+
+  if(analyses.length<1){
+    ctx.fillText("Faça uma análise para iniciar o gráfico.",16,48);
+    return;
+  }
+
+  const vals=analyses.map(a=>Number(a[key]));
+  let min=Math.min(...vals), max=Math.max(...vals);
+  if(min===max){min-=1;max+=1;}
+  const pad=(max-min)*0.15 || 1;
+  min-=pad; max+=pad;
+
+  const left=48,right=18,top=34,bottom=38;
+  const plotW=W-left-right,plotH=H-top-bottom;
+
+  ctx.strokeStyle="#dce6e1";
+  ctx.lineWidth=1;
+  ctx.fillStyle="#66766f";
+  ctx.font="11px Arial";
+
+  for(let i=0;i<=4;i++){
+    const y=top+(plotH*i/4);
+    ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(W-right,y);ctx.stroke();
+    const value=max-(max-min)*i/4;
+    ctx.fillText(value.toFixed(key==="ph"||key==="ec"?2:1),4,y+4);
+  }
+
+  const stepX=analyses.length===1 ? 0 : plotW/(analyses.length-1);
+
+  ctx.strokeStyle="#1f7a4c";
+  ctx.lineWidth=2.5;
+  ctx.beginPath();
+  vals.forEach((v,i)=>{
+    const x=left+(analyses.length===1?plotW/2:i*stepX);
+    const y=top+(max-v)/(max-min)*plotH;
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+
+  vals.forEach((v,i)=>{
+    const x=left+(analyses.length===1?plotW/2:i*stepX);
+    const y=top+(max-v)/(max-min)*plotH;
+    ctx.fillStyle="#1f7a4c";
+    ctx.beginPath();ctx.arc(x,y,3.5,0,Math.PI*2);ctx.fill();
+  });
+
+  ctx.fillStyle="#66766f";
+  const maxLabels=Math.min(8,analyses.length);
+  for(let j=0;j<maxLabels;j++){
+    const idx=Math.round(j*(analyses.length-1)/Math.max(1,maxLabels-1));
+    const x=left+(analyses.length===1?plotW/2:idx*stepX);
+    ctx.fillText("#"+analyses[idx].id,Math.max(2,x-8),H-14);
+  }
+}
+
+window.addEventListener("resize",drawChart);
+
+(async()=>{
+  await syncClock();
+  await loadAll();
+
+  setInterval(loadAll,4000);
+})();
+</script>
+</body>
+</html>
+)SOILBOXHTML";
+
+// -------------------- UTILITÁRIOS -----------------------------
+String sanitizeCsvField(String s) {
+  s.trim();
+  s.replace(",", "-");
+  s.replace("\n", " ");
+  s.replace("\r", " ");
+  if (s.length() == 0) s = "Ponto";
+  if (s.length() > 24) s = s.substring(0, 24);
+  return s;
+}
+
+String jsonEscape(String s) {
+  s.replace("\\", "\\\\");
+  s.replace("\"", "\\\"");
+  s.replace("\n", "\\n");
+  s.replace("\r", "");
+  return s;
+}
+
+float randomFloat(float minValue, float maxValue, int decimals = 1) {
+  long scale = 1;
+  for (int i = 0; i < decimals; i++) scale *= 10;
+  long minScaled = (long)(minValue * scale);
+  long maxScaled = (long)(maxValue * scale);
+  return random(minScaled, maxScaled + 1) / (float)scale;
+}
+
+uint64_t currentEpoch() {
+  if (syncedEpoch == 0) return 0;
+  return syncedEpoch + ((millis() - syncedAtMillis) / 1000ULL);
+}
+
+String classifySoil(const SoilAnalysis &a) {
+  uint8_t ok = 0;
+
+  // Faixas DEMONSTRATIVAS para a simulação.
+  if (a.ph >= 5.5 && a.ph <= 7.2) ok++;
+  if (a.ec >= 0.30 && a.ec <= 1.80) ok++;
+  if (a.temperature >= 18.0 && a.temperature <= 30.0) ok++;
+  if (a.moisture >= 30.0 && a.moisture <= 65.0) ok++;
+  if (a.nitrogen >= 25.0) ok++;
+  if (a.phosphorus >= 12.0) ok++;
+  if (a.potassium >= 45.0) ok++;
+
+  if (ok >= 6) return "Favorável";
+  if (ok >= 4) return "Atenção";
+  return "Desfavorável";
+}
+
+void ensureHistoryFile() {
+  if (!LittleFS.exists(HISTORY_FILE)) {
+    File f = LittleFS.open(HISTORY_FILE, FILE_WRITE);
+    if (f) {
+      f.println("id,epoch,ponto,ph,ec,temperatura,fosforo,potassio,umidade,nitrogenio,status");
+      f.close();
+    }
+  }
+}
+
+void trimHistoryIfNeeded() {
+  File f = LittleFS.open(HISTORY_FILE, FILE_READ);
+  if (!f) return;
+
+  String header = f.readStringUntil('\n');
+  std::vector<String> lines;
+
+  while (f.available()) {
+    String line = f.readStringUntil('\n');
+    line.trim();
+    if (line.length()) lines.push_back(line);
+  }
+  f.close();
+
+  if (lines.size() <= MAX_RECORDS) return;
+
+  File out = LittleFS.open("/analises.tmp", FILE_WRITE);
+  if (!out) return;
+
+  header.trim();
+  out.println(header);
+
+  size_t start = lines.size() - MAX_RECORDS;
+  for (size_t i = start; i < lines.size(); i++) {
+    out.println(lines[i]);
+  }
+  out.close();
+
+  LittleFS.remove(HISTORY_FILE);
+  LittleFS.rename("/analises.tmp", HISTORY_FILE);
+}
+
+void saveAnalysis(const SoilAnalysis &a) {
+  ensureHistoryFile();
+
+  File f = LittleFS.open(HISTORY_FILE, FILE_APPEND);
+  if (!f) return;
+
+  f.printf(
+    "%lu,%llu,%s,%.2f,%.2f,%.1f,%.0f,%.0f,%.1f,%.0f,%s\n",
+    (unsigned long)a.id,
+    (unsigned long long)a.epoch,
+    a.point.c_str(),
+    a.ph,
+    a.ec,
+    a.temperature,
+    a.phosphorus,
+    a.potassium,
+    a.moisture,
+    a.nitrogen,
+    a.status.c_str()
+  );
+  f.close();
+
+  trimHistoryIfNeeded();
+}
+
+void loadLastId() {
+  ensureHistoryFile();
+  File f = LittleFS.open(HISTORY_FILE, FILE_READ);
+  if (!f) return;
+
+  f.readStringUntil('\n'); // cabeçalho
+  uint32_t last = 0;
+
+  while (f.available()) {
+    String line = f.readStringUntil('\n');
+    line.trim();
+    if (!line.length()) continue;
+
+    int comma = line.indexOf(',');
+    if (comma > 0) {
+      last = (uint32_t)line.substring(0, comma).toInt();
+    }
+  }
+  f.close();
+  lastId = last;
+}
+
+bool splitCsv(const String &line, String fields[], int expectedFields) {
+  int field = 0;
+  int start = 0;
+
+  for (int i = 0; i <= (int)line.length(); i++) {
+    if (i == (int)line.length() || line[i] == ',') {
+      if (field >= expectedFields) return false;
+      fields[field++] = line.substring(start, i);
+      start = i + 1;
+    }
+  }
+  return field == expectedFields;
+}
+
+// -------------------- LCD ------------------------------------
+void lcdPrintLine(uint8_t row, String text) {
+  if (text.length() > LCD_COLS) text = text.substring(0, LCD_COLS);
+  while (text.length() < LCD_COLS) text += " ";
+  lcd.setCursor(0, row);
+  lcd.print(text);
+}
+
+void updateLcd() {
+  if (!hasAnalysis) {
+    lcdPrintLine(0, "SOILBOX MOVETECH");
+    lcdPrintLine(1, "Preparando...");
+    return;
+  }
+
+  char l1[24];
+  char l2[24];
+
+  if (lcdPage == 0) {
+    lcdPrintLine(0, "DESLIGUE/LIGUE");
+    lcdPrintLine(1, "NOVA ANALISE");
+  }
+  else if (lcdPage == 1) {
+    snprintf(l1, sizeof(l1), "pH %.2f", currentAnalysis.ph);
+    snprintf(l2, sizeof(l2), "EC %.2f mS/cm", currentAnalysis.ec);
+    lcdPrintLine(0, l1);
+    lcdPrintLine(1, l2);
+  }
+  else if (lcdPage == 2) {
+    snprintf(l1, sizeof(l1), "Temp %.1f C", currentAnalysis.temperature);
+    snprintf(l2, sizeof(l2), "Umid %.1f%%", currentAnalysis.moisture);
+    lcdPrintLine(0, l1);
+    lcdPrintLine(1, l2);
+  }
+  else if (lcdPage == 3) {
+    snprintf(l1, sizeof(l1), "N %.0f P %.0f", currentAnalysis.nitrogen, currentAnalysis.phosphorus);
+    snprintf(l2, sizeof(l2), "K %.0f mg/kg", currentAnalysis.potassium);
+    lcdPrintLine(0, l1);
+    lcdPrintLine(1, l2);
+  }
+  else if (lcdPage == 4) {
+    snprintf(l1, sizeof(l1), "Analise #%lu", (unsigned long)currentAnalysis.id);
+    lcdPrintLine(0, l1);
+    lcdPrintLine(1, currentAnalysis.status);
+  }
+  else {
+    lcdPrintLine(0, "WiFi SoilBox");
+    lcdPrintLine(1, WiFi.softAPIP().toString());
+  }
+}
+
+// -------------------- SIMULAÇÃO -------------------------------
+SoilAnalysis simulateAnalysis(String point) {
+  SoilAnalysis a;
+
+  a.id = ++lastId;
+  a.epoch = currentEpoch();
+
+  if (point.length() == 0) {
+    point = "Ponto-" + String(a.id);
+  }
+  a.point = sanitizeCsvField(point);
+
+  // Valores SIMULADOS.
+  // Substitua essas linhas pelas leituras reais dos sensores futuramente.
+  a.ph = randomFloat(4.8, 7.6, 2);
+  a.ec = randomFloat(0.20, 2.20, 2);
+  a.temperature = randomFloat(18.0, 32.0, 1);
+  a.phosphorus = randomFloat(5.0, 65.0, 0);
+  a.potassium = randomFloat(20.0, 220.0, 0);
+  a.moisture = randomFloat(18.0, 75.0, 1);
+  a.nitrogen = randomFloat(10.0, 100.0, 0);
+
+  a.status = classifySoil(a);
+  return a;
+}
+
+void performAnalysis(String point = "") {
+  currentAnalysis = simulateAnalysis(point);
+  hasAnalysis = true;
+  saveAnalysis(currentAnalysis);
+
+  lcdPage = 0;
+  updateLcd();
+
+  Serial.println();
+  Serial.println("========== NOVA ANALISE ==========");
+  Serial.printf("ID: %lu | Ponto: %s\n", (unsigned long)currentAnalysis.id, currentAnalysis.point.c_str());
+  Serial.printf("pH: %.2f\n", currentAnalysis.ph);
+  Serial.printf("EC: %.2f mS/cm\n", currentAnalysis.ec);
+  Serial.printf("Temperatura: %.1f C\n", currentAnalysis.temperature);
+  Serial.printf("Umidade: %.1f %%\n", currentAnalysis.moisture);
+  Serial.printf("Nitrogenio: %.0f mg/kg\n", currentAnalysis.nitrogen);
+  Serial.printf("Fosforo: %.0f mg/kg\n", currentAnalysis.phosphorus);
+  Serial.printf("Potassio: %.0f mg/kg\n", currentAnalysis.potassium);
+  Serial.printf("Status: %s\n", currentAnalysis.status.c_str());
+}
+
+// -------------------- API / SITE ------------------------------
+void handleDataApi() {
+  ensureHistoryFile();
+  File f = LittleFS.open(HISTORY_FILE, FILE_READ);
+
+  if (!f) {
+    server.send(500, "application/json", "{\"erro\":\"falha ao abrir historico\"}");
+    return;
+  }
+
+  String json = "[";
+  bool first = true;
+
+  f.readStringUntil('\n'); // cabeçalho
+
+  while (f.available()) {
+    String line = f.readStringUntil('\n');
+    line.trim();
+    if (!line.length()) continue;
+
+    String v[11];
+    if (!splitCsv(line, v, 11)) continue;
+
+    if (!first) json += ",";
+    first = false;
+
+    json += "{";
+    json += "\"id\":" + v[0] + ",";
+    json += "\"epoch\":" + v[1] + ",";
+    json += "\"point\":\"" + jsonEscape(v[2]) + "\",";
+    json += "\"ph\":" + v[3] + ",";
+    json += "\"ec\":" + v[4] + ",";
+    json += "\"temperature\":" + v[5] + ",";
+    json += "\"phosphorus\":" + v[6] + ",";
+    json += "\"potassium\":" + v[7] + ",";
+    json += "\"moisture\":" + v[8] + ",";
+    json += "\"nitrogen\":" + v[9] + ",";
+    json += "\"status\":\"" + jsonEscape(v[10]) + "\"";
+    json += "}";
+  }
+
+  f.close();
+  json += "]";
+
+  server.send(200, "application/json; charset=utf-8", json);
+}
+
+void handleMetaApi() {
+  String json = "{";
+  json += "\"ip\":\"" + WiFi.softAPIP().toString() + "\",";
+  json += "\"clients\":" + String(WiFi.softAPgetStationNum()) + ",";
+  json += "\"fsUsed\":" + String((unsigned long)LittleFS.usedBytes()) + ",";
+  json += "\"fsTotal\":" + String((unsigned long)LittleFS.totalBytes()) + ",";
+  json += "\"freeHeap\":" + String((unsigned long)ESP.getFreeHeap()) + ",";
+  json += "\"auto\":";
+  json += autoMode ? "true" : "false";
+  json += "}";
+
+  server.send(200, "application/json; charset=utf-8", json);
+}
+
+void handleAnalyze() {
+  server.send(
+    409,
+    "application/json; charset=utf-8",
+    "{\"ok\":false,\"mensagem\":\"Ciclo concluido. Desligue e ligue o SoilBox para uma nova analise.\"}"
+  );
+}
+
+void handleClear() {
+  if (LittleFS.exists(HISTORY_FILE)) LittleFS.remove(HISTORY_FILE);
+  ensureHistoryFile();
+
+  lastId = 0;
+  hasAnalysis = false;
+  autoMode = false;
+
+  lcdPage = 0;
+  updateLcd();
+
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void handleDownload() {
+  ensureHistoryFile();
+  File f = LittleFS.open(HISTORY_FILE, FILE_READ);
+
+  if (!f) {
+    server.send(404, "text/plain", "Arquivo nao encontrado.");
+    return;
+  }
+
+  server.sendHeader("Content-Disposition", "attachment; filename=soilbox_movetech_analises.csv");
+  server.streamFile(f, "text/csv");
+  f.close();
+}
+
+void handleAuto() {
+  autoMode = false;
+  server.send(
+    200,
+    "application/json; charset=utf-8",
+    "{\"auto\":false,\"mensagem\":\"Uma analise por ciclo de energia.\"}"
+  );
+}
+
+void handleTimeSync() {
+  if (server.hasArg("epoch")) {
+    uint64_t epoch = strtoull(server.arg("epoch").c_str(), nullptr, 10);
+
+    if (epoch > 1000000000ULL) {
+      syncedEpoch = epoch;
+      syncedAtMillis = millis();
+    }
+  }
+
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void setupRoutes() {
+  server.on("/", HTTP_GET, []() {
+    server.send_P(200, "text/html; charset=utf-8", INDEX_HTML);
+  });
+
+  server.on("/api/data", HTTP_GET, handleDataApi);
+  server.on("/api/meta", HTTP_GET, handleMetaApi);
+  server.on("/analisar", HTTP_GET, handleAnalyze);
+  server.on("/limpar", HTTP_GET, handleClear);
+  server.on("/download", HTTP_GET, handleDownload);
+  server.on("/auto", HTTP_GET, handleAuto);
+  server.on("/sync-time", HTTP_GET, handleTimeSync);
+
+  server.onNotFound([]() {
+    server.sendHeader("Location", "/");
+    server.send(302, "text/plain", "");
+  });
+}
+
+
+// -------------------- CICLO AUTOMÁTICO ------------------------
+void waitOneSecondServingWeb() {
+  unsigned long start = millis();
+  while (millis() - start < 1000) {
+    server.handleClient();
+    delay(5);
+  }
+}
+
+void runStartupAnalysisCycle() {
+  // 1) Temporizador de 5 segundos ao ligar.
+  for (int sec = 5; sec >= 1; sec--) {
+    lcdPrintLine(0, "SOILBOX MOVETECH");
+    lcdPrintLine(1, "Inicia em " + String(sec) + " s");
+    Serial.printf("Inicio da analise em %d s...\n", sec);
+    waitOneSecondServingWeb();
+  }
+
+  // 2) Simula a leitura dos sensores por 10 segundos.
+  for (int sec = 10; sec >= 1; sec--) {
+    lcdPrintLine(0, "ANALISANDO SOLO");
+    lcdPrintLine(1, "Aguarde " + String(sec) + " s");
+    Serial.printf("Analisando solo... %d s\n", sec);
+    waitOneSecondServingWeb();
+  }
+
+  // 3) Gera e salva UMA análise simulada.
+  performAnalysis();
+  cycleCompleted = true;
+
+  lcdPrintLine(0, "ANALISE PRONTA!");
+  lcdPrintLine(1, "Dados salvos");
+  Serial.println("Analise concluida. Desligue e ligue para analisar novamente.");
+  waitOneSecondServingWeb();
+  waitOneSecondServingWeb();
+
+  lcdPage = 0;
+  lastLcdPageChange = millis();
+  updateLcd();
+}
+
+// -------------------- SETUP ----------------------------------
+void setup() {
+  Serial.begin(115200);
+  delay(300);
+
+  randomSeed(esp_random());
+
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+
+  Wire.begin(SDA_PIN, SCL_PIN);
+
+  lcd.begin(LCD_COLS, LCD_ROWS, Wire);
+  lcd.setBacklight(255);
+  lcd.clear();
+  lcdPrintLine(0, "SOILBOX MOVETECH");
+  lcdPrintLine(1, "Inicializando...");
+
+  if (!LittleFS.begin(true)) {
+    lcdPrintLine(0, "Erro na Flash!");
+    lcdPrintLine(1, "Verifique ESP32");
+    Serial.println("ERRO: LittleFS nao iniciou.");
+  } else {
+    ensureHistoryFile();
+    loadLastId();
+  }
+
+  WiFi.mode(WIFI_AP);
+
+  // IP fixo para facilitar a apresentação.
+  IPAddress localIP(192, 168, 4, 1);
+  IPAddress gateway(192, 168, 4, 1);
+  IPAddress subnet(255, 255, 255, 0);
+  WiFi.softAPConfig(localIP, gateway, subnet);
+
+  bool apOk = WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
+
+  if (!apOk) {
+    Serial.println("ERRO ao criar Wi-Fi.");
+    lcdPrintLine(0, "Erro no WiFi!");
+    lcdPrintLine(1, "Reinicie ESP32");
+  } else {
+    Serial.println("Wi-Fi criado com sucesso.");
+    Serial.print("Rede: ");
+    Serial.println(WIFI_SSID);
+    Serial.print("IP: ");
+    Serial.println(WiFi.softAPIP());
+  }
+
+  setupRoutes();
+  server.begin();
+
+  lcdPrintLine(0, "SOILBOX MOVETECH");
+  lcdPrintLine(1, "Sistema pronto");
+
+  // Uma única análise por vez que o ESP32 é ligado/reiniciado.
+  runStartupAnalysisCycle();
+}
+
+// -------------------- LOOP -----------------------------------
+void loop() {
+  server.handleClient();
+
+  // Após concluir a análise, alterna a instrução e os resultados.
+  // Só haverá outra análise quando o ESP32 for reiniciado.
+  if (cycleCompleted && millis() - lastLcdPageChange >= 2500) {
+    lastLcdPageChange = millis();
+    lcdPage = (lcdPage + 1) % 6;
+    updateLcd();
+  }
+
+  delay(2);
+}
